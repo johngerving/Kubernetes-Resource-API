@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 )
 
 type Resources struct {
@@ -67,10 +68,25 @@ func main() {
 
 	nodes := make(map[string]*Node)
 
-	getNodeInfo(clientset, nodes)
+	err = getNodeInfo(clientset, nodes)
+
+	if err != nil {
+		panic(err)
+	}
+
+	err = getNodeFreeResources(clientset, nodes)
+
+	if err != nil {
+		panic(err)
+	}
+
+	for _, node := range nodes {
+		bytes, _ := json.MarshalIndent(node, "\t", "\t")
+		fmt.Println(string(bytes))
+	}
 }
 
-// getNodeInfo modifies a map of nodes, adding entries with the node name as a key.
+// getNodeInfo modifies a map of Node instances, adding entries with the node name as a key.
 // It gets the name of the node, its taints, capacity, and allocatable resources. These are added to the nodes map.
 func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 	// Get all nodes in the cluster
@@ -114,10 +130,105 @@ func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 		nodes[node.Name] = &newNode
 	}
 
+	return nil
+}
+
+// getNodeFreeResources modifies a map of Node instances and sums the requests
+// of each resource for every pod in every node, subtracting them from the
+// Allocatable resourcs.
+func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Node) error {
+	// Get a list of every pod in the cluster that isn't terminated
+	nonTerminatedPods, err := kubeClient.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed)})
+
+	if err != nil {
+		return err
+	}
+
+	// For each node, copy the allocatable resources into the free resources to be subtracted from
 	for _, node := range nodes {
-		bytes, _ := json.MarshalIndent(node, "\t", "\t")
-		fmt.Println(string(bytes))
+		node.Free = Resources{
+			Cpu:       node.Allocatable.Cpu.DeepCopy(),
+			Memory:    node.Allocatable.Memory.DeepCopy(),
+			Gpu:       node.Allocatable.Gpu.DeepCopy(),
+			Ephemeral: node.Allocatable.Ephemeral.DeepCopy(),
+		}
+	}
+
+	for _, pod := range nonTerminatedPods.Items {
+		// Only get pod requests if the nodes map has an entry for the node
+		if _, ok := nodes[pod.Spec.NodeName]; !ok {
+			continue
+		}
+
+		// Get the requests and limits for the pod
+		podReqs, _ := resourcehelper.PodRequestsAndLimits(&pod)
+
+		// Get the relevant resource requests from the pod
+		cpuReq := podReqs[corev1.ResourceCPU]
+		memReq := podReqs[corev1.ResourceMemory]
+
+		// Get the GPU capacity of the node - default 0
+		gpuReq := podReqs["nvidia.com/gpu"]
+
+		// Loop through the fields of the podReqs
+		for key, value := range podReqs {
+			// If the node is a GPU node, set the gpuCapacity to its GPU count
+			if strings.HasPrefix(key.String(), "nvidia.com") && !value.IsZero() {
+				gpuReq = value
+			}
+		}
+
+		ephemeralReq := podReqs[corev1.ResourceEphemeralStorage]
+
+		nodes[pod.Spec.NodeName].Free.Cpu.Sub(cpuReq)
+		nodes[pod.Spec.NodeName].Free.Memory.Sub(memReq)
+		nodes[pod.Spec.NodeName].Free.Gpu.Sub(gpuReq)
+		nodes[pod.Spec.NodeName].Free.Ephemeral.Sub(ephemeralReq)
 	}
 
 	return nil
+}
+
+// getNodeRequestsAndLimits modifies a NodeResources struct instance and sums the requests and limits of each resource for every pod in every node
+func getNodeRequestsAndLimits(kubeClient kubernetes.Interface, nodeResources map[string]NodeResources) {
+	// Get a list of every pod in the cluster that isn't terminated
+	nonTerminatedPods, err := kubeClient.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed)})
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	for _, pod := range nonTerminatedPods.Items {
+		// If nodeResources does not have an entry with the node name, we allocate a new NodeResources struct instance for it
+		if _, ok := nodeResources[pod.Spec.NodeName]; !ok {
+			nodeResources[pod.Spec.NodeName] = NodeResources{Requests: make(map[corev1.ResourceName]resource.Quantity), Limits: make(map[corev1.ResourceName]resource.Quantity)}
+		}
+
+		// Get the requests and limits for the pod
+		podReqs, podLimits := resourcehelper.PodRequestsAndLimits(&pod)
+
+		// Go through request names and values in the pod
+		for podReqName, podReqValue := range podReqs {
+			if value, ok := nodeResources[pod.Spec.NodeName].Requests[podReqName]; !ok {
+				// If the request ResourceName doesn't exist, create it and copy the resource Quantity to it
+				nodeResources[pod.Spec.NodeName].Requests[podReqName] = podReqValue.DeepCopy()
+			} else {
+				// Otherwise, add the resource Quantity to the existing value in nodeResources
+				value.Add(podReqValue)
+				nodeResources[pod.Spec.NodeName].Requests[podReqName] = value
+			}
+		}
+
+		// Go through limit names and values in the pod
+		for podLimitName, podLimitValue := range podLimits {
+			if value, ok := nodeResources[pod.Spec.NodeName].Limits[podLimitName]; !ok {
+				// If the limit ResourceName doesn't exist, create it and copy the resource Quantity to it
+				nodeResources[pod.Spec.NodeName].Limits[podLimitName] = podLimitValue.DeepCopy()
+			} else {
+				// Otherwise, add the resource Quantity to the existing value in nodeResources
+				value.Add(podLimitValue)
+				nodeResources[pod.Spec.NodeName].Limits[podLimitName] = value
+			}
+		}
+	}
 }

@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +16,7 @@ import (
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 )
 
+// Define resources struct containing the resource types we want to return
 type Resources struct {
 	Cpu       resource.Quantity
 	Memory    resource.Quantity
@@ -22,6 +24,7 @@ type Resources struct {
 	Ephemeral resource.Quantity
 }
 
+// Define node struct for storing resources and other node information
 type Node struct {
 	Name        string
 	Taints      []corev1.Taint
@@ -30,10 +33,19 @@ type Node struct {
 	Free        Resources
 }
 
-type NodeResources struct {
-	Allocatable Resources
-	Requests    map[corev1.ResourceName]resource.Quantity
-	Limits      map[corev1.ResourceName]resource.Quantity
+type ResourcesJson struct {
+	Cpu       float64 `json:"cpu"`
+	Memory    int64   `json:"memory"`
+	Gpu       int64   `json:"gpu"`
+	Ephemeral int64   `json:"ephemeral"`
+}
+
+type NodeJson struct {
+	Name        string         `json:"name"`
+	Taints      []corev1.Taint `json:"taints"`
+	Allocatable ResourcesJson  `json:"allocatable"`
+	Capacity    ResourcesJson  `json:"capacity"`
+	Free        ResourcesJson  `json:"free"`
 }
 
 func main() {
@@ -66,24 +78,91 @@ func main() {
 		os.Exit(1)
 	}
 
-	nodes := make(map[string]*Node)
+	router := gin.Default()
 
-	err = getNodeInfo(clientset, nodes)
+	router.GET("/nodes", getNodesHandler(clientset))
 
-	if err != nil {
-		panic(err)
+	router.Run("localhost:8080")
+}
+
+// getNodesHandler returns a HandlerFunc to return a list of nodes given a Kubernetes clientset.
+func getNodesHandler(client kubernetes.Interface) gin.HandlerFunc {
+	// Define a handler function to return
+	handler := func(c *gin.Context) {
+		// Create a map of string to Node struct instances
+		nodes := make(map[string]*Node)
+
+		// Get the node capacity, allocatable resources, name, and taints
+		err := getNodeInfo(client, nodes)
+
+		if err != nil {
+			fmt.Println(err)
+			c.JSON(http.StatusInternalServerError, "error retrieving node information")
+			return
+		}
+
+		// Get the available resources of the nodes
+		err = getNodeFreeResources(client, nodes)
+
+		if err != nil {
+			fmt.Println(err)
+			c.JSON(http.StatusInternalServerError, "error retrieving available node resources")
+			return
+		}
+
+		// Create a slice to return the nodes instead of a map
+		nodeSlice := make([]NodeJson, 0, len(nodes))
+
+		for _, value := range nodes {
+			nodeSlice = append(nodeSlice, getNodeStructured(value))
+		}
+
+		c.IndentedJSON(http.StatusOK, nodeSlice)
 	}
 
-	err = getNodeFreeResources(clientset, nodes)
+	return gin.HandlerFunc(handler)
+}
 
-	if err != nil {
-		panic(err)
+// getNodeStructured takes a pointer to a Node struct instance and returns a NodeJson struct instance
+// with the fields properly converted
+func getNodeStructured(node *Node) NodeJson {
+	var nodeJson NodeJson
+
+	// Copy name field
+	nodeJson.Name = node.Name
+
+	// If the node has no taints, add an empty slice - otherwise, copy the taints from the Node struct instance
+	if node.Taints != nil {
+		nodeJson.Taints = make([]corev1.Taint, 0)
+	} else {
+		nodeJson.Taints = node.Taints
 	}
 
-	for _, node := range nodes {
-		bytes, _ := json.MarshalIndent(node, "\t", "\t")
-		fmt.Println(string(bytes))
+	// Copy the resource capacity fields and convert to numbers
+	nodeJson.Capacity = ResourcesJson{
+		Cpu:       node.Capacity.Cpu.AsApproximateFloat64(),
+		Memory:    node.Capacity.Memory.Value(),
+		Gpu:       node.Capacity.Gpu.Value(),
+		Ephemeral: node.Capacity.Ephemeral.Value(),
 	}
+
+	// Copy the resource allocatable fields and convert to numbers
+	nodeJson.Allocatable = ResourcesJson{
+		Cpu:       node.Allocatable.Cpu.AsApproximateFloat64(),
+		Memory:    node.Allocatable.Memory.Value(),
+		Gpu:       node.Allocatable.Gpu.Value(),
+		Ephemeral: node.Allocatable.Ephemeral.Value(),
+	}
+
+	// Copy the free resource fields and convert to numbers
+	nodeJson.Free = ResourcesJson{
+		Cpu:       node.Free.Cpu.AsApproximateFloat64(),
+		Memory:    node.Free.Memory.Value(),
+		Gpu:       node.Free.Gpu.Value(),
+		Ephemeral: node.Free.Ephemeral.Value(),
+	}
+
+	return nodeJson
 }
 
 // getNodeInfo modifies a map of Node instances, adding entries with the node name as a key.
@@ -187,48 +266,4 @@ func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Nod
 	}
 
 	return nil
-}
-
-// getNodeRequestsAndLimits modifies a NodeResources struct instance and sums the requests and limits of each resource for every pod in every node
-func getNodeRequestsAndLimits(kubeClient kubernetes.Interface, nodeResources map[string]NodeResources) {
-	// Get a list of every pod in the cluster that isn't terminated
-	nonTerminatedPods, err := kubeClient.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed)})
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	for _, pod := range nonTerminatedPods.Items {
-		// If nodeResources does not have an entry with the node name, we allocate a new NodeResources struct instance for it
-		if _, ok := nodeResources[pod.Spec.NodeName]; !ok {
-			nodeResources[pod.Spec.NodeName] = NodeResources{Requests: make(map[corev1.ResourceName]resource.Quantity), Limits: make(map[corev1.ResourceName]resource.Quantity)}
-		}
-
-		// Get the requests and limits for the pod
-		podReqs, podLimits := resourcehelper.PodRequestsAndLimits(&pod)
-
-		// Go through request names and values in the pod
-		for podReqName, podReqValue := range podReqs {
-			if value, ok := nodeResources[pod.Spec.NodeName].Requests[podReqName]; !ok {
-				// If the request ResourceName doesn't exist, create it and copy the resource Quantity to it
-				nodeResources[pod.Spec.NodeName].Requests[podReqName] = podReqValue.DeepCopy()
-			} else {
-				// Otherwise, add the resource Quantity to the existing value in nodeResources
-				value.Add(podReqValue)
-				nodeResources[pod.Spec.NodeName].Requests[podReqName] = value
-			}
-		}
-
-		// Go through limit names and values in the pod
-		for podLimitName, podLimitValue := range podLimits {
-			if value, ok := nodeResources[pod.Spec.NodeName].Limits[podLimitName]; !ok {
-				// If the limit ResourceName doesn't exist, create it and copy the resource Quantity to it
-				nodeResources[pod.Spec.NodeName].Limits[podLimitName] = podLimitValue.DeepCopy()
-			} else {
-				// Otherwise, add the resource Quantity to the existing value in nodeResources
-				value.Add(podLimitValue)
-				nodeResources[pod.Spec.NodeName].Limits[podLimitName] = value
-			}
-		}
-	}
 }

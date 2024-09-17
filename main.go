@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +50,12 @@ type NodeJson struct {
 }
 
 func main() {
+	// Load .env file
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println("error loading .env file")
+		os.Exit(1)
+	}
 
 	// Get arguments after program name
 	args := os.Args[1:]
@@ -76,6 +83,12 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
+	}
+
+	// Set to release mode depending on environment variable
+	ginEnv := os.Getenv("GIN_MODE")
+	if ginEnv == "release" {
+		gin.SetMode(gin.ReleaseMode)
 	}
 
 	router := gin.Default()

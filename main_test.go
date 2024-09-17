@@ -10,6 +10,169 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+// TestGetNodeStructured calls getNodeStructured on a *Node, checking that the resources in the resulting
+// structure are formatted correctly.
+func TestGetNodeStructured(t *testing.T) {
+	// Create a test Node struct instance
+	node1 := Node{
+		Name: "node-1",
+		Taints: []v1.Taint{
+			{
+				Key:    "test-key",
+				Value:  "test-value",
+				Effect: "test-effect",
+			},
+		},
+		Allocatable: Resources{
+			Cpu:       *resource.NewMilliQuantity(6500, resource.DecimalSI),
+			Memory:    *resource.NewMilliQuantity(4194300000000, resource.BinarySI),
+			Gpu:       *resource.NewQuantity(3, resource.DecimalSI),
+			Ephemeral: *resource.NewMilliQuantity(12288000000, resource.DecimalSI),
+		},
+		Capacity: Resources{
+			Cpu:       *resource.NewMilliQuantity(6500, resource.DecimalSI),
+			Memory:    *resource.NewMilliQuantity(4194300000000, resource.BinarySI),
+			Gpu:       *resource.NewQuantity(3, resource.DecimalSI),
+			Ephemeral: *resource.NewMilliQuantity(12288000000, resource.DecimalSI),
+		},
+		Free: Resources{
+			Cpu:       *resource.NewMilliQuantity(4300, resource.DecimalSI),
+			Memory:    *resource.NewMilliQuantity(2097200000000, resource.BinarySI),
+			Gpu:       *resource.NewQuantity(2, resource.DecimalSI),
+			Ephemeral: *resource.NewMilliQuantity(12288000000, resource.DecimalSI),
+		},
+	}
+
+	// The same node but with no taints
+	node2 := Node{
+		Name:   "node-2",
+		Taints: nil,
+		Allocatable: Resources{
+			Cpu:       *resource.NewMilliQuantity(6500, resource.DecimalSI),
+			Memory:    *resource.NewMilliQuantity(4194300000000, resource.DecimalSI),
+			Gpu:       *resource.NewQuantity(3, resource.DecimalSI),
+			Ephemeral: *resource.NewMilliQuantity(12288000000, resource.DecimalSI),
+		},
+		Capacity: Resources{
+			Cpu:       *resource.NewMilliQuantity(6500, resource.DecimalSI),
+			Memory:    *resource.NewMilliQuantity(4194300000000, resource.DecimalSI),
+			Gpu:       *resource.NewQuantity(3, resource.DecimalSI),
+			Ephemeral: *resource.NewMilliQuantity(12288000000, resource.DecimalSI),
+		},
+		Free: Resources{
+			Cpu:       *resource.NewMilliQuantity(4300, resource.DecimalSI),
+			Memory:    *resource.NewMilliQuantity(2097200000000, resource.DecimalSI),
+			Gpu:       *resource.NewQuantity(2, resource.DecimalSI),
+			Ephemeral: *resource.NewMilliQuantity(12288000000, resource.DecimalSI),
+		},
+	}
+
+	wantNode1 := NodeJson{
+		Name: "node-1",
+		Taints: []v1.Taint{
+			{
+				Key:    "test-key",
+				Value:  "test-value",
+				Effect: "test-effect",
+			},
+		},
+		Allocatable: ResourcesJson{
+			Cpu:       6.5,
+			Memory:    4194300000,
+			Gpu:       3,
+			Ephemeral: 12288000,
+		},
+		Capacity: ResourcesJson{
+			Cpu:       6.5,
+			Memory:    4194300000,
+			Gpu:       3,
+			Ephemeral: 12288000,
+		},
+		Free: ResourcesJson{
+			Cpu:       4.3,
+			Memory:    2097200000,
+			Gpu:       2,
+			Ephemeral: 12288000,
+		},
+	}
+
+	wantNode2 := NodeJson{
+		Name:   "node-2",
+		Taints: []v1.Taint{},
+		Allocatable: ResourcesJson{
+			Cpu:       6.5,
+			Memory:    4194300000,
+			Gpu:       3,
+			Ephemeral: 12288000,
+		},
+		Capacity: ResourcesJson{
+			Cpu:       6.5,
+			Memory:    4194300000,
+			Gpu:       3,
+			Ephemeral: 12288000,
+		},
+		Free: ResourcesJson{
+			Cpu:       4.3,
+			Memory:    2097200000,
+			Gpu:       2,
+			Ephemeral: 12288000,
+		},
+	}
+
+	haveNode1 := getNodeStructured(&node1)
+	haveNode2 := getNodeStructured(&node2)
+
+	switch {
+	case haveNode1.Name != wantNode1.Name:
+		t.Fatalf(`nodeJson.Name = %v, want match for %v`, haveNode1.Name, wantNode1.Name)
+	case !matchTaintLists(haveNode1.Taints, wantNode1.Taints):
+		t.Fatalf(`nodeJson.Taints = %v, want match for %v`, haveNode1.Taints, wantNode1.Taints)
+	case haveNode1.Allocatable != wantNode1.Allocatable:
+		t.Fatalf(`nodeJson.Allocatable = %v, want match for %v`, haveNode1.Allocatable, wantNode1.Allocatable)
+	case haveNode1.Capacity != wantNode1.Capacity:
+		t.Fatalf(`nodeJson.Capacity = %v, want match for %v`, haveNode1.Capacity, wantNode1.Capacity)
+	case haveNode1.Free != wantNode1.Free:
+		t.Fatalf(`nodeJson.Free = %v, want match for %v`, haveNode1.Free, wantNode1.Free)
+
+	case haveNode2.Name != wantNode2.Name:
+		t.Fatalf(`nodeJson.Name = %v, want match for %v`, haveNode2.Name, wantNode2.Name)
+	case !matchTaintLists(haveNode2.Taints, wantNode2.Taints):
+		t.Fatalf(`nodeJson.Taints = %v, want match for %v`, haveNode2.Taints, wantNode2.Taints)
+	case haveNode2.Allocatable != wantNode2.Allocatable:
+		t.Fatalf(`nodeJson.Allocatable = %v, want match for %v`, haveNode2.Allocatable, wantNode2.Allocatable)
+	case haveNode2.Capacity != wantNode2.Capacity:
+		t.Fatalf(`nodeJson.Capacity = %v, want match for %v`, haveNode2.Capacity, wantNode2.Capacity)
+	case haveNode2.Free != wantNode2.Free:
+		t.Fatalf(`nodeJson.Free = %v, want match for %v`, haveNode2.Free, wantNode2.Free)
+	}
+
+}
+
+// matchTaintLists checks if two lists of v1.Taint struct instances have all of the same elements.
+func matchTaintLists(l1, l2 []v1.Taint) bool {
+	if len(l1) != len(l2) {
+		return false
+	}
+
+	if len(l1) == 0 && len(l2) == 0 {
+		return true
+	}
+
+	for i, _ := range l1 {
+		foundMatch := false
+		for j, _ := range l2 {
+			if l1[i].MatchTaint(&l2[j]) {
+				foundMatch = true
+			}
+		}
+		if !foundMatch {
+			return false
+		}
+	}
+
+	return true
+}
+
 // TestGetNodeInfo calls getNodeInfo on a map[string]*Nodes, checking that the resources in the resulting map
 // match the mock nodes' resource values.
 func TestGetNodeInfo(t *testing.T) {

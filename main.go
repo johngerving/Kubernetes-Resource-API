@@ -132,7 +132,7 @@ func getNodeStructured(node *Node) NodeJson {
 	nodeJson.Name = node.Name
 
 	// If the node has no taints, add an empty slice - otherwise, copy the taints from the Node struct instance
-	if node.Taints != nil {
+	if node.Taints == nil {
 		nodeJson.Taints = make([]corev1.Taint, 0)
 	} else {
 		nodeJson.Taints = node.Taints

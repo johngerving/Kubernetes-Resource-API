@@ -182,7 +182,7 @@ func getNodeStructured(node *Node) NodeJson {
 // It gets the name of the node, its taints, capacity, and allocatable resources. These are added to the nodes map.
 func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 	// Get all nodes in the cluster
-	nodeList, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	nodeList, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 
 	if err != nil {
 		return err
@@ -230,7 +230,7 @@ func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 // Allocatable resourcs.
 func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Node) error {
 	// Get a list of every pod in the cluster that isn't terminated
-	nonTerminatedPods, err := kubeClient.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed)})
+	nonTerminatedPods, err := kubeClient.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{FieldSelector: "status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed)})
 
 	if err != nil {
 		return err

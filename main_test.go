@@ -158,9 +158,9 @@ func matchTaintLists(l1, l2 []v1.Taint) bool {
 		return true
 	}
 
-	for i, _ := range l1 {
+	for i := range l1 {
 		foundMatch := false
-		for j, _ := range l2 {
+		for j := range l2 {
 			if l1[i].MatchTaint(&l2[j]) {
 				foundMatch = true
 			}

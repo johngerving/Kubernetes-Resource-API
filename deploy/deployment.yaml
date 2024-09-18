@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: humboldt-resource-api
+  labels:
+    k8s-app: humboldt-resource-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: humboldt-resource-api
+  template:
+    metadata:
+      labels:
+        k8s-app: humboldt-resource-api
+    spec:
+      containers:
+      - name: api-pod
+        image: gitlab-registry.nrp-nautilus.io/humboldt/kubernetes-resource-api:v1.4
+        resources:
+          requests:
+            cpu: 1
+            memory: "1Gi"
+          limits:
+            cpu: 1
+            memory: "1Gi"
+        volumeMounts:
+        - mountPath: /config-volume
+          name: config-volume
+      volumes:
+        - name: config-volume
+          persistentVolumeClaim:
+            claimName: config-volume

@@ -58,33 +58,25 @@ func main() {
 	}
 
 	var config *rest.Config
-	if os.Getenv("ENVIRONMENT") == "production" {
-		// Create in-cluster config
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-	} else {
-		// Get arguments after program name
-		args := os.Args[1:]
 
-		// Exit with error if kubeconfig path not provided
-		if len(args) == 0 {
-			fmt.Println("error: expected kubeconfig path")
-			os.Exit(1)
-		}
+	// Get arguments after program name
+	args := os.Args[1:]
 
-		// Get pointer to first argument after program name
-		kubeconfig := &args[0]
+	// Exit with error if kubeconfig path not provided
+	if len(args) == 0 {
+		fmt.Println("error: expected kubeconfig path")
+		os.Exit(1)
+	}
 
-		// Create a config from the kubeconfig file
-		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	// Get pointer to first argument after program name
+	kubeconfig := &args[0]
 
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+	// Create a config from the kubeconfig file
+	config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	// Create a Kubernetes clientset

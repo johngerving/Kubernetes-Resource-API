@@ -32,4 +32,5 @@ EXPOSE 8080
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/docker-kubernetes-api"]
+# Run
+CMD ["/docker-kubernetes-api", "/config-volume/config_sa"]

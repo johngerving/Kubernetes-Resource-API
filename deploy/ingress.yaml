@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: haproxy
+  name: humboldt-resource-api-ingress
+spec:
+  rules:
+  - host: humboldt-resource-api.nrp-nautilus.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: humboldt-resource-api-svc
+            port:
+              number: 8080
+  tls:
+  - hosts:
+    - humboldt-resource-api.nrp-nautilus.io

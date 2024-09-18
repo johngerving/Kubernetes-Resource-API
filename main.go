@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 )
@@ -54,27 +55,36 @@ func main() {
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println("error loading .env file")
-		os.Exit(1)
 	}
 
-	// Get arguments after program name
-	args := os.Args[1:]
+	var config *rest.Config
+	if os.Getenv("ENVIRONMENT") == "production" {
+		// Create in-cluster config
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	} else {
+		// Get arguments after program name
+		args := os.Args[1:]
 
-	// Exit with error if kubeconfig path not provided
-	if len(args) == 0 {
-		fmt.Println("error: expected kubeconfig path")
-		os.Exit(1)
-	}
+		// Exit with error if kubeconfig path not provided
+		if len(args) == 0 {
+			fmt.Println("error: expected kubeconfig path")
+			os.Exit(1)
+		}
 
-	// Get pointer to first argument after program name
-	kubeconfig := &args[0]
+		// Get pointer to first argument after program name
+		kubeconfig := &args[0]
 
-	// Create a config from the kubeconfig file
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+		// Create a config from the kubeconfig file
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
 
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
 	// Create a Kubernetes clientset
@@ -95,7 +105,13 @@ func main() {
 
 	router.GET("/nodes", getNodesHandler(clientset))
 
-	router.Run("localhost:8080")
+	// Get port to run API on
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	router.Run(":" + port)
 }
 
 // getNodesHandler returns a HandlerFunc to return a list of nodes given a Kubernetes clientset.

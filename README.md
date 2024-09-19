@@ -20,6 +20,6 @@ To deploy the API on a Kubernetes cluster, use ```kubectl apply -f``` on each fi
 
 Returns a list of every node in the cluster. Each node contains information on the name of the node, its taints, its allocatable resources, resource capacity, and free resources. Each of these resource objects contain the number of CPUs as a float, the amount of memory in bytes, the number of GPUs as an integer, and the amount of ephemeral storage in bytes.
 
-### Dockerfile
+## Dockerfile
 
 The Dockerfile contains two build stages: one builds the Go source code on a regular Go-based image, and the other has the resulting binary copied into it. This second image is what is actually built by Docker and results in a much lighter image.

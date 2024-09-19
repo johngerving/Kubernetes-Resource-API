@@ -1,7 +1,14 @@
 image: gcr.io/kaniko-project/executor:debug
 
 stages:
+- test
 - build-and-push
+
+test-job:
+  stage: test
+  image: golang
+  script:
+  - go test
 
 build-and-push-job:
   stage: build-and-push

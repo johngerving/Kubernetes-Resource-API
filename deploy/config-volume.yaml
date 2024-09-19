@@ -3,9 +3,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: config-volume
 spec:
-  storageClassName: rook-ceph-block
+  storageClassName: rook-cephfs-central
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: "250Mi"

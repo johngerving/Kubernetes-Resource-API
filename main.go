@@ -35,6 +35,7 @@ type Node struct {
 	Free        Resources
 }
 
+// Resources in JSON format to be returned by the API
 type ResourcesJson struct {
 	Cpu       float64 `json:"cpu"`
 	Memory    int64   `json:"memory"`
@@ -42,6 +43,7 @@ type ResourcesJson struct {
 	Ephemeral int64   `json:"ephemeral"`
 }
 
+// Node information in JSON format to be returned by the API
 type NodeJson struct {
 	Name        string         `json:"name"`
 	Taints      []corev1.Taint `json:"taints"`
@@ -51,15 +53,16 @@ type NodeJson struct {
 }
 
 func main() {
-	// Load .env file
+	// Load .env file - only needed in development for specifying the Gin release mode and environment mode
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println("error loading .env file")
 	}
 
+	// Declare Kubernetes client
 	var config *rest.Config
 
-	// Get arguments after program name
+	// Get arguments after program name - this will represent the path to a kubeconfig file
 	args := os.Args[1:]
 
 	// Exit with error if kubeconfig path not provided
@@ -79,7 +82,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create a Kubernetes clientset
+	// Create a Kubernetes clientset from the config
 	clientset, err := kubernetes.NewForConfig(config)
 
 	if err != nil {
@@ -95,12 +98,13 @@ func main() {
 
 	router := gin.Default()
 
+	// Create an endpoint at /nodes that calls a function returned by getNodesHandler
 	router.GET("/nodes", getNodesHandler(clientset))
 
 	// Get port to run API on
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8080" // Default port
 	}
 
 	router.Run(":" + port)
@@ -134,10 +138,12 @@ func getNodesHandler(client kubernetes.Interface) gin.HandlerFunc {
 		// Create a slice to return the nodes instead of a map
 		nodeSlice := make([]NodeJson, 0, len(nodes))
 
+		// Loop through the nodes and convert each struct instance to JSON
 		for _, value := range nodes {
 			nodeSlice = append(nodeSlice, getNodeStructured(value))
 		}
 
+		// Send JSON node data as response
 		c.IndentedJSON(http.StatusOK, nodeSlice)
 	}
 
@@ -189,7 +195,7 @@ func getNodeStructured(node *Node) NodeJson {
 // getNodeInfo modifies a map of Node instances, adding entries with the node name as a key.
 // It gets the name of the node, its taints, capacity, and allocatable resources. These are added to the nodes map.
 func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
-	// Get all nodes in the cluster
+	// Get all nodes in the cluster - uses Kubernetes clientset to list every node
 	nodeList, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 
 	if err != nil {
@@ -209,7 +215,7 @@ func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 			}
 		}
 
-		// Create a new Node with the correct resources
+		// Create a new Node with the correct resources -copy the Capacity and Allocatable values from the node status into a Node struct instance
 		newNode := Node{
 			Name:   node.Name,
 			Taints: node.Spec.Taints,
@@ -227,6 +233,7 @@ func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 			},
 		}
 
+		// Add Node struct instance to map
 		nodes[node.Name] = &newNode
 	}
 
@@ -237,7 +244,8 @@ func getNodeInfo(client kubernetes.Interface, nodes map[string]*Node) error {
 // of each resource for every pod in every node, subtracting them from the
 // Allocatable resourcs.
 func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Node) error {
-	// Get a list of every pod in the cluster that isn't terminated
+	// Get a list of every pod in the cluster that isn't terminated - uses Kubernetes clientset
+	// to find every pod with phase not PodSucceeded or PodFailed
 	nonTerminatedPods, err := kubeClient.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{FieldSelector: "status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed)})
 
 	if err != nil {
@@ -245,6 +253,7 @@ func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Nod
 	}
 
 	// For each node, copy the allocatable resources into the free resources to be subtracted from
+	// Once all resources have been subtracted, what is left over will be the free resources
 	for _, node := range nodes {
 		node.Free = Resources{
 			Cpu:       node.Allocatable.Cpu.DeepCopy(),
@@ -254,6 +263,7 @@ func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Nod
 		}
 	}
 
+	// Loop through every pod in cluster
 	for _, pod := range nonTerminatedPods.Items {
 		// Only get pod requests if the nodes map has an entry for the node
 		if _, ok := nodes[pod.Spec.NodeName]; !ok {
@@ -278,8 +288,10 @@ func getNodeFreeResources(kubeClient kubernetes.Interface, nodes map[string]*Nod
 			}
 		}
 
+		// Get ephemeral storage from the pod requests
 		ephemeralReq := podReqs[corev1.ResourceEphemeralStorage]
 
+		// Subtract each value from the current Free resources in the Node struct instance
 		nodes[pod.Spec.NodeName].Free.Cpu.Sub(cpuReq)
 		nodes[pod.Spec.NodeName].Free.Memory.Sub(memReq)
 		nodes[pod.Spec.NodeName].Free.Gpu.Sub(gpuReq)

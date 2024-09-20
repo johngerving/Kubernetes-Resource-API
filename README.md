@@ -14,11 +14,81 @@ Build the Docker container with ```docker build -t <name of image> .``` (Note: t
 
 To deploy the API on a Kubernetes cluster, use ```kubectl apply -f``` on each file in the ```deploy/``` directory. In order to run, the ```config-volume``` created by ```deploy/config-volume.yaml``` must contain a Kubernetes Service Account config file with the ClusterRole rolebinding.
 
+The API is hosted at https://humboldt-resource-api.nrp-nautilus.io.
+
 ## Endpoints
 
 ### /nodes
 
 Returns a list of every node in the cluster. Each node contains information on the name of the node, its taints, its allocatable resources, resource capacity, and free resources. Each of these resource objects contain the number of CPUs as a float, the amount of memory in bytes, the number of GPUs as an integer, and the amount of ephemeral storage in bytes.
+
+Example:
+
+```
+$ curl https://humboldt-resource-api.nrp-nautilus.io/nodes
+
+[
+    {
+        "name": "fiona.ucsc.edu",
+        "taints": [
+            {
+                "key": "nautilus.io/ceph",
+                "value": "true",
+                "effect": "NoSchedule"
+            }
+        ],
+        "allocatable": {
+            "cpu": 95,
+            "memory": 405359382528,
+            "gpu": 0,
+            "ephemeral": 1242526823210
+        },
+        "capacity": {
+            "cpu": 95,
+            "memory": 405464240128,
+            "gpu": 0,
+            "ephemeral": 1380585361408
+        },
+        "free": {
+            "cpu": 93.017,
+            "memory": 82374905856,
+            "gpu": 0,
+            "ephemeral": 1242526823210
+        }
+    },
+    ...
+    ...
+    ...
+    {
+        "name": "storage-01.nrp.mghpcc.org",
+        "taints": [
+            {
+                "key": "nautilus.io/stashcache",
+                "value": "true",
+                "effect": "NoSchedule"
+            }
+        ],
+        "allocatable": {
+            "cpu": 112,
+            "memory": 810083545088,
+            "gpu": 0,
+            "ephemeral": 753039624175
+        },
+        "capacity": {
+            "cpu": 112,
+            "memory": 810188402688,
+            "gpu": 0,
+            "ephemeral": 836710694912
+        },
+        "free": {
+            "cpu": 3.617,
+            "memory": 5886570496,
+            "gpu": 0,
+            "ephemeral": 538291259375
+        }
+    }
+]
+```
 
 ## Dockerfile
 
